@@ -1,0 +1,9 @@
+{
+  "bindings": [
+    {
+      "keys": [71],
+      "mouse": null,
+      "output": [17, 91, 37]
+    }
+  ]
+}

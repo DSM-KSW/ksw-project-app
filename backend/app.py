@@ -1,14 +1,20 @@
 import ctypes
 import json
 import os
+import sys
 import threading
 import webbrowser
 from ctypes import wintypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+try:
+    from . import ipc
+except ImportError:  # Direct `python app.py` prototype launch.
+    import ipc
+
 ROOT = Path(__file__).resolve().parent
-CONFIG = ROOT / "bindings.json"
+CONFIG = (ipc.DATA_DIR if "--background" in sys.argv else ROOT) / "bindings.json"
 macro = ctypes.CDLL(str(ROOT / "macro_combo.dll"))
 macro.send_keys.argtypes = [ctypes.POINTER(ctypes.c_ushort), ctypes.c_uint,
                             ctypes.c_ushort, ctypes.POINTER(ctypes.c_longlong)]
@@ -122,6 +128,7 @@ def load_bindings():
 
 
 def save_bindings(bindings):
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
     temporary = CONFIG.with_suffix(".json.tmp")
     temporary.write_text(json.dumps({"bindings": bindings}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, CONFIG)
@@ -482,11 +489,85 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-if __name__ == "__main__":
+
+def dispatch_ipc(message):
+    """Apply a remapping call received by the independent IPC thread."""
+    operation = message.get("op")
+    with state_lock:
+        if operation == "ping":
+            return {"ok": True, "pid": os.getpid()}
+        if operation == "status":
+            return {"ok": True, "active": state["active"],
+                    "keyboard_hook": state["keyboard_hook"], "mouse_hook": state["mouse_hook"],
+                    "binding_count": len(state["bindings"])}
+        if operation == "list_bindings":
+            return {"ok": True, "bindings": [dict(item) for item in state["bindings"]]}
+        if operation == "set_active":
+            if type(message.get("active")) is not bool:
+                return {"ok": False, "error": "active_must_be_boolean"}
+            state["active"] = message["active"]
+            state["status"] = "치환 작동 중" if state["active"] else "일시 정지"
+            return {"ok": True, "active": state["active"]}
+        if operation == "set_binding":
+            binding = message.get("binding")
+            if not valid_binding(binding):
+                return {"ok": False, "error": "invalid_binding"}
+            signature = (frozenset(canonical_key(key) for key in binding["keys"]), binding["mouse"])
+            updated = [item for item in state["bindings"] if
+                       (frozenset(canonical_key(key) for key in item["keys"]), item["mouse"]) != signature]
+            updated.append({"keys": binding["keys"].copy(), "mouse": binding["mouse"],
+                            "output": binding["output"].copy()})
+        elif operation == "delete_binding":
+            source = message.get("source")
+            if not isinstance(source, dict) or not isinstance(source.get("keys"), list):
+                return {"ok": False, "error": "invalid_source"}
+            keys, mouse = source["keys"], source.get("mouse")
+            if not all(type(key) is int for key in keys):
+                return {"ok": False, "error": "invalid_source"}
+            signature = (frozenset(canonical_key(key) for key in keys), mouse)
+            updated = [item for item in state["bindings"] if
+                       (frozenset(canonical_key(key) for key in item["keys"]), item["mouse"]) != signature]
+            if len(updated) == len(state["bindings"]):
+                return {"ok": False, "error": "not_found"}
+        else:
+            return {"ok": False, "error": "unknown_operation"}
+        try:
+            save_bindings(updated)
+        except OSError as error:
+            return {"ok": False, "error": f"save_failed: {error}"}
+        state["bindings"] = updated
+        triggered.clear()
+        return {"ok": True, "bindings": [dict(item) for item in updated]}
+
+
+def start_hooks():
     threading.Thread(target=run_hook, args=(WH_KEYBOARD_LL, keyboard_callback, "키보드"), daemon=True).start()
     threading.Thread(target=run_hook, args=(WH_MOUSE_LL, mouse_callback, "마우스"), daemon=True).start()
     with state_lock:
         state["status"] = f"저장된 리매핑 {len(state['bindings'])}개 · 입력을 선택하세요"
+
+
+def run_background():
+    """Keep remapping alive after the front-end process exits."""
+    mutex_name = "Local\\" + ipc.PIPE_NAME
+    kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    mutex = kernel32.CreateMutexW(None, False, mutex_name)
+    if not mutex:
+        raise ctypes.WinError(ctypes.get_last_error())
+    if ctypes.get_last_error() == 183:  # Another instance owns the hooks and pipe.
+        kernel32.CloseHandle(mutex)
+        return
+    start_hooks()
+    threading.Thread(target=ipc.serve, args=(dispatch_ipc,), name="remap-ipc", daemon=True).start()
+    threading.Event().wait()
+
+
+if __name__ == "__main__":
+    if "--background" in sys.argv:
+        run_background()
+        raise SystemExit(0)
+    start_hooks()
     server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
     print("Open: http://127.0.0.1:8765", flush=True)
     print("Stop: close this window", flush=True)

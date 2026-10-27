@@ -22,3 +22,11 @@ F12는 일시 정지/재개용으로 예약되어 원래 키로 지정할 수 �
 - `bindings.example.json`: 저장 형식 예시
 - `API_SPEC.md`: 현재 API와 차기 설계안
 - `mouse_input_probe.py`, `run_mouse_probe.bat`: 실제 입력 ID 확인용 임시 도구
+
+## 프론트 앱 연결
+
+프론트 앱은 Windows에서 이 모듈을 `--background`로 숨김 자식 프로세스로 실행합니다. 이 모드에서는 브라우저·HTTP 테스트 화면을 열지 않고 키보드 훅 스레드, 마우스 훅 스레드, named pipe 요청 스레드를 실행합니다. 프론트가 종료되어도 백그라운드는 계속 동작하며, 재실행된 프론트는 같은 파이프에 다시 연결합니다. 중복 실행은 Windows mutex로 막습니다.
+
+공유 모듈 `ipc.py`의 `request(op, ...)`가 JSON 요청/응답을 주고받습니다. 지원하는 `op`는 `ping`, `status`, `list_bindings`, `set_binding`, `delete_binding`, `set_active`입니다. `set_binding`의 본문은 현재 `bindings.json`과 동일한 `{"keys":[71],"mouse":null,"output":[17,84]}` 형식입니다. 성공 시 `{"ok":true,...}`, 실패 시 `{"ok":false,"error":"..."}`를 반환합니다. 사용자별 설정과 IPC 키는 `%LOCALAPPDATA%\DSM-KSW`에 보관합니다. JSON 바이트만 전송하며 pickle 객체는 받지 않습니다.
+
+현재 C 출력은 키보드 조합에 한정됩니다. 마우스 버튼 출력과 HID 추가 버튼의 직접 입력·출력은 별도 구현이 필요합니다.

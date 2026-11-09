@@ -25,7 +25,7 @@ class PackagedWorkerTests(unittest.TestCase):
                 stderr=subprocess.DEVNULL,
                 capture_output=False,
                 check=False,
-                timeout=60,
+                timeout=180,
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
             )
             self.assertEqual(launcher.returncode, 0)

@@ -78,5 +78,6 @@ if __name__ == "__main__":
         if probe_log:
             with open(probe_log, "a", encoding="utf-8") as log:
                 log.write("connected\n")
+        os._exit(0)
     else:
         ft.run(main, assets_dir=ASSETS_DIR)

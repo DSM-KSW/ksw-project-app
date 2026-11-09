@@ -70,6 +70,13 @@ if __name__ == "__main__":
 
         run_background()
     elif "--background-probe" in sys.argv:
+        probe_log = os.environ.get("KSW_PROBE_LOG")
+        if probe_log:
+            with open(probe_log, "a", encoding="utf-8") as log:
+                log.write("entered\n")
         backend_client.ensure_background()
+        if probe_log:
+            with open(probe_log, "a", encoding="utf-8") as log:
+                log.write("connected\n")
     else:
         ft.run(main, assets_dir=ASSETS_DIR)

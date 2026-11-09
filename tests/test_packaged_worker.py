@@ -16,19 +16,32 @@ class PackagedWorkerTests(unittest.TestCase):
         executable = Path(os.environ["KSW_PACKAGED_EXE"])
         self.assertTrue(executable.is_file())
         with tempfile.TemporaryDirectory() as directory:
-            env = {**os.environ, "LOCALAPPDATA": directory}
-            launcher = subprocess.run(
+            probe_log = Path(directory) / "probe.log"
+            env = {
+                **os.environ,
+                "LOCALAPPDATA": directory,
+                "KSW_PROBE_LOG": str(probe_log),
+            }
+            launcher = subprocess.Popen(
                 [str(executable), "--background-probe"],
                 env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                capture_output=False,
-                check=False,
-                timeout=180,
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
             )
-            self.assertEqual(launcher.returncode, 0)
+            try:
+                returncode = launcher.wait(timeout=90)
+            except subprocess.TimeoutExpired as error:
+                progress = (
+                    probe_log.read_text(encoding="utf-8")
+                    if probe_log.exists()
+                    else "no probe log"
+                )
+                raise AssertionError(
+                    f"Launcher did not exit; progress={progress!r}"
+                ) from error
+            self.assertEqual(returncode, 0)
             with patch.dict(os.environ, {"LOCALAPPDATA": directory}):
                 # The module may already be loaded by another test with a different path.
                 from backend import ipc

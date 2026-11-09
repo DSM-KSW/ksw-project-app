@@ -43,10 +43,12 @@ class PackagedWorkerTests(unittest.TestCase):
                         "powershell",
                         "-NoProfile",
                         "-Command",
-                        "Get-CimInstance Win32_Process | "
-                        "Where-Object Name -eq 'dsm-ksw-project.exe' | "
-                        "Select-Object ProcessId,ParentProcessId,CommandLine | "
-                        "ConvertTo-Json -Compress",
+                        (
+                            "Get-CimInstance Win32_Process | "
+                            "Where-Object Name -eq 'dsm-ksw-project.exe' | "
+                            "Select-Object ProcessId,ParentProcessId,CommandLine | "
+                            "ConvertTo-Json -Compress"
+                        ),
                     ],
                     capture_output=True,
                     text=True,

@@ -38,8 +38,24 @@ class PackagedWorkerTests(unittest.TestCase):
                     if probe_log.exists()
                     else "no probe log"
                 )
+                processes = subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        "Get-CimInstance Win32_Process | "
+                        "Where-Object Name -eq 'dsm-ksw-project.exe' | "
+                        "Select-Object ProcessId,ParentProcessId,CommandLine | "
+                        "ConvertTo-Json -Compress",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
                 raise AssertionError(
-                    f"Launcher did not exit; progress={progress!r}"
+                    f"Launcher did not exit; progress={progress!r}; "
+                    f"processes={processes.stdout.strip()!r}"
                 ) from error
             self.assertEqual(returncode, 0)
             with patch.dict(os.environ, {"LOCALAPPDATA": directory}):

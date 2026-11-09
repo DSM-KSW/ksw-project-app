@@ -82,7 +82,7 @@ jobs:
       - name: Test packaged background after front exits
         shell: pwsh
         run: |
-          $env:KSW_PACKAGED_EXE = (Resolve-Path dist/dsm-ksw-project.exe).Path
+          $env:KSW_PACKAGED_EXE = (Resolve-Path dist/dsm-ksw-project/dsm-ksw-project.exe).Path
           python -m unittest discover -s tests -p test_packaged_worker.py -v
 
       - name: Upload Windows executable
@@ -90,7 +90,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: windows-build
-          path: dist/*.exe
+          path: dist/dsm-ksw-project/
           if-no-files-found: error
           retention-days: 7
 

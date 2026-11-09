@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-@unittest.skipUnless(sys.platform == "win32", "Windows one-file executable")
+@unittest.skipUnless(sys.platform == "win32", "Windows packaged executable")
 class PackagedWorkerTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("KSW_PACKAGED_EXE"), "Build executable first")
     def test_worker_survives_packaged_parent_exit(self):

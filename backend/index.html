@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client-Project 리매핑</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0d1423; color: #eaf0fa; font-family: system-ui, sans-serif; min-height: 100vh; display: grid; place-items: center; }
+  main { width: min(98vw, 1160px); padding: 28px; background: #172238; border: 1px solid #2d405d; border-radius: 22px; box-shadow: 0 18px 60px #0005; }
+  h1 { margin: 0 0 8px; font-size: 27px; }
+  h2 { font-size: 18px; margin-top: 28px; }
+  p, small { color: #aab9cf; line-height: 1.6; }
+  button { cursor: pointer; font: inherit; }
+  #capture { margin: 12px 0; padding: 10px 14px; border: 1px solid #65e4f4; border-radius: 9px; background: #10384a; color: #eaf0fa; }
+  #capture.waiting { border-color: #f8c66c; background: #44351c; }
+  #keyboard { overflow-x: auto; padding: 12px; background: #edf0f3; border-radius: 12px; }
+  .kb-row { display: flex; gap: 4px; min-width: 930px; margin-bottom: 4px; }
+  .kb-row:last-child { margin-bottom: 0; }
+  .key { flex: 1 0 0; min-width: 28px; height: 42px; padding: 3px; border: 1px solid #bfc5cb; border-radius: 5px; background: #d6d9dc; color: #20252b; font-size: 11px; }
+  .key:hover { background: #bbc6cc; }
+  .key.selected { background: #00bcd0; border-color: #008b9c; color: #08191c; font-weight: 700; }
+  .key:disabled { opacity: .45; cursor: not-allowed; }
+  .key.spacer { visibility: hidden; pointer-events: none; }
+  .roles { display: flex; gap: 8px; margin: 12px 0; }
+  .roles button { padding: 10px 14px; border: 1px solid #65e4f4; border-radius: 8px; background: #102b3a; color: #eaf0fa; }
+  .roles button.active { background: #00bcd0; color: #08191c; font-weight: 700; }
+  #save { border: 0; border-radius: 9px; padding: 11px 18px; background: #65e4f4; color: #0d1423; font-weight: 700; }
+  #save:disabled { opacity: .45; cursor: default; }
+  #selected { margin: 14px 0; color: #eaf0fa; }
+  #saved { list-style: none; padding: 0; margin: 8px 0; }
+  #saved li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid #30425d; }
+  #saved button { border: 1px solid #7b8fa9; border-radius: 7px; padding: 6px 10px; background: transparent; color: #eaf0fa; }
+  #test-input { width: 100%; padding: 13px; border-radius: 9px; border: 1px solid #49617e; background: #0d1423; color: #eaf0fa; font-size: 16px; }
+  #elapsed { font: 700 clamp(34px, 8vw, 56px)/1.2 Consolas, monospace; color: #65e4f4; margin: 8px 0; }
+  #status { border-top: 1px solid #30425d; padding-top: 18px; margin-top: 24px; }
+  small { display: block; margin-top: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>키 리매핑 테스트</h1>
+  <p>① 원래 키 하나를 고르고 ② 바꿀 키를 하나 이상 고른 뒤 저장하세요. 예: G → Ctrl + Windows + ←</p>
+  <div class="roles"><button id="role-input" type="button" class="active">① 원래 키</button><button id="role-output" type="button">② 바꿀 키 조합</button></div>
+  <div id="keyboard" aria-label="가상 키보드"></div>
+  <button id="capture" type="button">원래 키를 실제 키·마우스로 선택</button>
+  <div id="selected">원래 키: 없음</div>
+  <div id="selected-output">바꿀 키: 없음</div>
+  <button id="save" type="button" disabled>리매핑 저장</button>
+  <h2>저장된 리매핑</h2>
+  <ul id="saved"><li>저장된 리매핑이 없습니다.</li></ul>
+  <input id="test-input" type="text" placeholder="여기에서 저장된 리매핑을 시험해 보세요">
+  <h2>최근 실행</h2>
+  <div id="elapsed">— ms</div>
+  <div id="result">아직 실행하지 않았습니다.</div>
+  <p id="status">입력 감지 준비 중</p>
+  <small>바꿀 키는 여러 개 선택할 수 있고, 함께 눌렀다가 함께 떼는 방식으로 실행됩니다. 선택한 키를 다시 클릭하면 해제됩니다. F12는 원래 키로 선택할 수 없으며 일시 정지/재개에 사용됩니다.</small>
+</main>
+<script>
+let waiting = false;
+let lastCount = -1;
+let savedSignature = '';
+let role = 'input';
+let inputKeys = [];
+let outputKeys = [];
+let pendingDraft = false;
+const captureButton = document.getElementById('capture');
+const saveButton = document.getElementById('save');
+document.getElementById('role-input').addEventListener('click', () => setRole('input'));
+document.getElementById('role-output').addEventListener('click', () => setRole('output'));
+
+function setRole(nextRole) {
+  role = nextRole;
+  document.getElementById('role-input').classList.toggle('active', role === 'input');
+  document.getElementById('role-output').classList.toggle('active', role === 'output');
+  showVirtualSelection();
+}
+
+const K = (label, code, width = 1) => ({label, code, width});
+const letters = text => [...text].map(letter => K(letter, letter.charCodeAt(0)));
+const digits = text => [...text].map(digit => K(digit, digit.charCodeAt(0)));
+const functionKeys = (start, end) => Array.from({length:end-start+1}, (_, i) => K(`F${start+i}`, 0x6F+start+i));
+const rows = [
+  [K('Esc',27), K('',null,.6), ...functionKeys(1,12), K('',null,.6), K('PrtSc',44), K('Scroll',145), K('Pause',19)],
+  [K('F13~F24',null,1.5), ...functionKeys(13,24)],
+  [K('`',192), ...digits('1234567890'), K('-',189), K('=',187), K('Backspace',8,2), K('',null,.4), K('Insert',45), K('Home',36), K('PgUp',33), K('',null,.4), K('Num',144), K('/',111), K('*',106), K('-',109)],
+  [K('Tab',9,1.5), ...letters('QWERTYUIOP'), K('[',219), K(']',221), K('\\',220,1.5), K('',null,.4), K('Delete',46), K('End',35), K('PgDn',34), K('',null,.4), ...[7,8,9].map(n=>K(String(n),96+n)), K('+',107)],
+  [K('Caps',20,1.8), ...letters('ASDFGHJKL'), K(';',186), K("'",222), K('Enter',13,2.2), K('',null,3.4), ...[4,5,6].map(n=>K(String(n),96+n)), K('',null,1)],
+  [K('Shift',16,2.3), ...letters('ZXCVBNM'), K(',',188), K('.',190), K('/',191), K('Shift',16,2.7), K('',null,1.5), K('↑',38), K('',null,1.5), ...[1,2,3].map(n=>K(String(n),96+n)), K('Enter',13)],
+  [K('Ctrl',17,1.4), K('Win',91,1.4), K('Alt',18,1.4), K('Space',32,6), K('Alt',18,1.4), K('Win',91,1.4), K('Menu',93,1.4), K('Ctrl',17,1.4), K('',null,.4), K('←',37), K('↓',40), K('→',39), K('',null,.4), K('0',96,2), K('.',110), K('Enter',13)]
+];
+const keyboard = document.getElementById('keyboard');
+for (const row of rows) {
+  const line = document.createElement('div');
+  line.className = 'kb-row';
+  for (const item of row) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = item.code === null ? 'key spacer' : 'key';
+    button.textContent = item.label;
+    button.style.flexGrow = String(item.width);
+    if (item.code !== null) {
+      button.dataset.code = String(item.code);
+      button.disabled = item.code === 0x7B;
+      button.addEventListener('click', () => toggleVirtualKey(item.code));
+    }
+    line.append(button);
+  }
+  keyboard.append(line);
+}
+
+function canonicalCode(code) {
+  if (code === 160 || code === 161) return 16;
+  if (code === 162 || code === 163) return 17;
+  if (code === 164 || code === 165) return 18;
+  if (code === 92) return 91;
+  return code;
+}
+function showVirtualSelection() {
+  const selected = role === 'input' ? inputKeys : outputKeys;
+  for (const button of keyboard.querySelectorAll('button[data-code]')) {
+    button.classList.toggle('selected', selected.includes(Number(button.dataset.code)));
+    button.disabled = role === 'input' && Number(button.dataset.code) === 0x7B;
+  }
+}
+async function toggleVirtualKey(code) {
+  if (pendingDraft) return;
+  const previous = (role === 'input' ? inputKeys : outputKeys).slice();
+  const next = role === 'input'
+    ? (inputKeys.includes(code) ? [] : [code])
+    : (outputKeys.includes(code) ? outputKeys.filter(value => value !== code) : [...outputKeys, code]);
+  if (next.length > 8) {
+    document.getElementById('status').textContent = '한 조합에는 최대 8개 키를 선택할 수 있습니다.';
+    return;
+  }
+  if (role === 'input') inputKeys = next; else outputKeys = next;
+  showVirtualSelection();
+  pendingDraft = true;
+  try { await post('/draft', {role, keys:next, mouse:null}); await refresh(); }
+  catch (error) {
+    if (role === 'input') inputKeys = previous; else outputKeys = previous;
+    showVirtualSelection(); document.getElementById('status').textContent = error.message;
+  }
+  finally { pendingDraft = false; }
+}
+
+async function post(path, data) {
+  const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: data ? JSON.stringify(data) : ''});
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({error:'요청 실패'}));
+    throw Error(problem.error || '요청 실패');
+  }
+}
+
+captureButton.addEventListener('click', async () => {
+  try {
+    await post('/capture');
+    waiting = true;
+    await refresh();
+  } catch (error) { document.getElementById('status').textContent = error.message; }
+});
+saveButton.addEventListener('click', async () => {
+  try {
+    await post('/save');
+    await refresh();
+  } catch (error) { document.getElementById('status').textContent = error.message; }
+});
+
+function keyboardCode(event) {
+  if (event.keyCode) return event.keyCode;
+  const f = /^F([1-9]|1[0-9]|2[0-4])$/.exec(event.key);
+  if (f) return 0x6F + Number(f[1]);
+  if (/^[a-z0-9]$/i.test(event.key)) return event.key.toUpperCase().charCodeAt(0);
+  return null;
+}
+async function captureEvent(source, code, pressed) {
+  try { await post('/capture-event', {source, code, pressed}); await refresh(); }
+  catch (error) { document.getElementById('status').textContent = error.message; }
+}
+document.addEventListener('keydown', event => {
+  if (!waiting) return;
+  const code = keyboardCode(event);
+  if (code === null || code === 0x7B) return;
+  event.preventDefault(); event.stopPropagation();
+  captureEvent('keyboard', code, true);
+}, true);
+document.addEventListener('keyup', event => {
+  if (!waiting) return;
+  const code = keyboardCode(event);
+  if (code === null || code === 0x7B) return;
+  event.preventDefault(); event.stopPropagation();
+  captureEvent('keyboard', code, false);
+}, true);
+const mouseNames = {0:'왼쪽 클릭', 1:'가운데 클릭', 2:'오른쪽 클릭', 3:'마우스 X1', 4:'마우스 X2'};
+document.addEventListener('mousedown', event => {
+  if (!waiting || !mouseNames[event.button]) return;
+  event.preventDefault(); event.stopPropagation();
+  captureEvent('mouse', mouseNames[event.button], true);
+}, true);
+document.addEventListener('mouseup', event => {
+  if (!waiting || !mouseNames[event.button]) return;
+  event.preventDefault(); event.stopPropagation();
+  captureEvent('mouse', mouseNames[event.button], false);
+}, true);
+document.addEventListener('wheel', event => {
+  if (!waiting) return;
+  event.preventDefault();
+  captureEvent('mouse', event.deltaY < 0 ? '휠 위' : '휠 아래', true);
+}, {capture:true, passive:false});
+
+function keyLabel(vk) {
+  if (vk >= 0x70 && vk <= 0x87) return `F${vk - 0x6F}`;
+  if (vk >= 0x30 && vk <= 0x39 || vk >= 0x41 && vk <= 0x5A) return String.fromCharCode(vk);
+  const names = {17:'Ctrl', 16:'Shift', 18:'Alt', 91:'Windows', 92:'오른쪽 Windows', 37:'←', 38:'↑', 39:'→', 40:'↓'};
+  return names[vk] || `VK 0x${vk.toString(16).toUpperCase()}`;
+}
+function renderSaved(bindings) {
+  const list = document.getElementById('saved');
+  list.replaceChildren();
+  if (!bindings.length) { const item = document.createElement('li'); item.textContent = '저장된 리매핑이 없습니다.'; list.append(item); return; }
+  bindings.forEach((binding, index) => {
+    const item = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = [...binding.keys.map(keyLabel), ...(binding.mouse ? [binding.mouse] : [])].join(' + ') +
+      ' → ' + binding.output.map(keyLabel).join(' + ');
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.textContent = '삭제';
+    remove.addEventListener('click', async () => {
+      try { await post('/delete', {index}); await refresh(); }
+      catch (error) { document.getElementById('status').textContent = error.message; }
+    });
+    item.append(label, remove); list.append(item);
+  });
+}
+async function refresh() {
+  try {
+    const data = await (await fetch('/state', {cache:'no-store'})).json();
+    waiting = data.capturing;
+    if (!pendingDraft) {
+      inputKeys = [...new Set((data.selected?.keys || []).map(canonicalCode))];
+      outputKeys = [...new Set((data.selected_output || []).map(canonicalCode))];
+      showVirtualSelection();
+    }
+    captureButton.classList.toggle('waiting', waiting);
+    captureButton.textContent = waiting ? '조합을 누른 채 유지했다가 모두 놓으세요…' : '바꿀 입력 선택';
+    document.getElementById('selected').textContent = data.selected_name ? `원래 키: ${data.selected_name}` : '원래 키: 없음';
+    document.getElementById('selected-output').textContent = data.selected_output_name ? `바꿀 키: ${data.selected_output_name}` : '바꿀 키: 없음';
+    saveButton.disabled = !data.selected || !data.selected_output?.length || waiting;
+    document.getElementById('status').textContent = `${data.status} · 키보드 ${data.keyboard_hook ? '연결' : '미연결'}, 마우스 ${data.mouse_hook ? '연결' : '미연결'}`;
+    const signature = JSON.stringify(data.bindings);
+    if (signature !== savedSignature) { savedSignature = signature; renderSaved(data.bindings); }
+    if (data.count !== lastCount && data.milliseconds !== null) {
+      document.getElementById('elapsed').textContent = data.milliseconds.toFixed(4) + ' ms';
+      document.getElementById('result').textContent = `${data.key} ${data.sent ? '전송 성공' : '전송 실패'} · ${data.count}회 실행`;
+      lastCount = data.count;
+    }
+  } catch (_) { document.getElementById('status').textContent = 'Python 프로그램과 연결되지 않았습니다.'; }
+}
+setInterval(refresh, 100);
+refresh();
+</script>
+</body>
+</html>

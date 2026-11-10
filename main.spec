@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller 빌드 설정: `pyinstaller main.spec` -> dist/dsm-ksw-project.exe
+# PyInstaller 빌드 설정: `pyinstaller main.spec` -> dist/dsm-ksw-project/
 import os
 import urllib.request
 
@@ -24,8 +24,8 @@ a = Analysis(
     ["main.py"],
     pathex=[],
     binaries=[],
-    datas=[(client_path, "flet_desktop/app")],
-    hiddenimports=collect_submodules("flet") + collect_submodules("flet_desktop"),
+    datas=[(client_path, "flet_desktop/app"), ("backend/macro_combo.dll", "backend")],
+    hiddenimports=collect_submodules("flet") + collect_submodules("flet_desktop") + ["backend.app", "backend.ipc"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -38,10 +38,9 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
     name="dsm-ksw-project",
+    exclude_binaries=True,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -54,4 +53,13 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="dsm-ksw-project",
 )

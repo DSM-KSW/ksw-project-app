@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import flet as ft
 
@@ -15,6 +15,8 @@ class KeyButtonParameters(TypedDict):
     height: float
     on_hover: ft.ControlEventHandler[ft.Container]
     on_out: ft.ControlEventHandler[ft.Container]
+    # 리매핑 편집 중에 바꿀 키 조합을 고를 때 쓴다
+    on_click: NotRequired[ft.ControlEventHandler[ft.Container]]
 
 
 def make_key_button(param: KeyButtonParameters):
@@ -38,4 +40,5 @@ def make_key_button(param: KeyButtonParameters):
         ),
         data=param["id"],
         on_hover=on_hover,
+        on_click=param.get("on_click"),
     )

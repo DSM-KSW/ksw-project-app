@@ -3,7 +3,9 @@ from typing import NotRequired, TypedDict
 
 import flet as ft
 
+import backend_client
 import components
+from view.key_codes import KEY_VK, RESERVED_SOURCE_VK, canonical_vk, key_id_for_vk
 
 
 class KeyButtonData(TypedDict):
@@ -23,9 +25,10 @@ KEY_GAP = 6  # 키 사이 여백(px)
 
 TOOLTIP_HIDE_DELAY = 0.2  # 툴팁에서 마우스가 벗어난 뒤 숨길 때까지 기다리는 시간(초)
 
-# 키 id -> 리매핑 목록 (각 리매핑은 키 id 조합)
-# TODO: 실제 리매핑 저장/적용 기능이 생기면 그쪽 데이터로 교체
-REMAPPINGS: dict[str, list[list[str]]] = {}
+KEY_SOURCE_COLOR = "#FFB74D"  # 리매핑 편집 중인 원래 키 색
+MAX_OUTPUT_KEYS = 8  # 백엔드가 받는 결과 키 조합 최대 길이
+PANEL_COLOR = "#2F2F2F"
+HINT_TEXT = "키에 마우스를 올리고 + 를 눌러 리매핑을 추가하세요"
 
 # US ANSI 104키 풀배열
 KEYBOARD_BUTTON_DATA: list[list[KeyButtonData]] = [
@@ -150,27 +153,90 @@ KEYBOARD_BUTTON_DATA: list[list[KeyButtonData]] = [
 KEY_NAMES: dict[str, str] = {
     data["id"]: data["name"] for data_list in KEYBOARD_BUTTON_DATA for data in data_list
 }
+# 화면에 이름이 비어 있는 키
+KEY_NAMES.update({"space": "Space", "right-win": "Win"})
 
 
-def remapping_label(index: int, key_ids: list[str]):
-    return f"리매핑 {index + 1}: " + "+".join(
-        KEY_NAMES.get(key_id, key_id) for key_id in key_ids
-    )
+def vk_label(vks: list[int]) -> str:
+    names = []
+    for vk in vks:
+        key_id = key_id_for_vk(vk)
+        names.append(KEY_NAMES.get(key_id, key_id) if key_id else f"VK {vk:#04x}")
+    return "+".join(names)
+
+
+# key_id 키를 원래 키에 포함하는 리매핑들 (백엔드 binding 형식)
+def bindings_for_key(bindings: list[dict], key_id: str) -> list[dict]:
+    vk = canonical_vk(KEY_VK[key_id])
+    return [
+        binding
+        for binding in bindings
+        if binding.get("mouse") is None
+        and vk in {canonical_vk(v) for v in binding["keys"]}
+    ]
+
+
+def remapping_label(binding: dict, key_id: str) -> str:
+    output = vk_label(binding["output"])
+    if [canonical_vk(v) for v in binding["keys"]] == [canonical_vk(KEY_VK[key_id])]:
+        return f"→ {output}"
+    return f"{vk_label(binding['keys'])} → {output}"
+
+
+def binding_key_ids(vks: list[int]) -> set[str]:
+    return {key_id for key_id in map(key_id_for_vk, vks) if key_id}
 
 
 def keyboard_view(page: ft.Page):
     key_buttons: dict[str, ft.Container] = {}
 
-    # 지금 툴팁이 떠 있는 키, 숨김 예약 작업
-    state: dict = {"key_id": None, "hide_task": None}
+    # key_id: 지금 툴팁이 떠 있는 키, hide_task: 숨김 예약 작업
+    # bindings: 백엔드에 저장된 리매핑, editing: 편집 중인 {"source": [VK], "output": [VK]}
+    state: dict = {
+        "key_id": None,
+        "hide_task": None,
+        "bindings": [],
+        "editing": None,
+        "message": None,
+    }
 
-    def set_highlight(key_ids: set[str]):
+    def load_bindings():
+        try:
+            state["bindings"] = backend_client.list_bindings()
+        except (OSError, RuntimeError, TimeoutError) as error:
+            state["bindings"] = []
+            state["message"] = f"백엔드 연결 실패: {error}"
+
+    def set_highlight(key_ids: set[str], source_ids: frozenset[str] = frozenset()):
         for key_id, key_button in key_buttons.items():
-            key_button.bgcolor = (
-                components.KEY_HIGHLIGHT_COLOR
-                if key_id in key_ids
-                else components.KEY_COLOR
+            if key_id in source_ids:
+                key_button.bgcolor = KEY_SOURCE_COLOR
+            elif key_id in key_ids:
+                key_button.bgcolor = components.KEY_HIGHLIGHT_COLOR
+            else:
+                key_button.bgcolor = components.KEY_COLOR
+
+    def render_panel():
+        editing = state["editing"]
+        if editing is None:
+            panel_text.value = state["message"] or HINT_TEXT
+            set_highlight(set())
+        else:
+            output = vk_label(editing["output"]) or "(바꿀 키 조합을 키보드에서 클릭)"
+            panel_text.value = f"{vk_label(editing['source'])} → {output}"
+            if state["message"]:
+                panel_text.value += f"   ·   {state['message']}"
+            set_highlight(
+                binding_key_ids(editing["output"]),
+                frozenset(binding_key_ids(editing["source"])),
             )
+        save_button.visible = editing is not None
+        cancel_button.visible = editing is not None
+
+    def update_all():
+        render_panel()
+        panel.update()
+        keyboard_stack.update()
 
     def cancel_hide():
         if state["hide_task"] is not None:
@@ -180,7 +246,8 @@ def keyboard_view(page: ft.Page):
     def hide_tooltip():
         state["key_id"] = None
         tooltip_thing.visible = False
-        set_highlight(set())
+        if state["editing"] is None:
+            set_highlight(set())
         keyboard_stack.update()
 
     def schedule_hide():
@@ -193,12 +260,75 @@ def keyboard_view(page: ft.Page):
 
         state["hide_task"] = page.run_task(hide_later)
 
+    def start_edit(source: list[int], output: list[int]):
+        cancel_hide()
+        state["key_id"] = None
+        tooltip_thing.visible = False
+        state["editing"] = {"source": source, "output": output}
+        state["message"] = None
+        update_all()
+
+    def finish_edit(message: str | None = None):
+        state["editing"] = None
+        state["message"] = message
+        update_all()
+
+    def save_edit():
+        editing = state["editing"]
+        if not editing["output"]:
+            state["message"] = "바꿀 키를 하나 이상 고르세요"
+            update_all()
+            return
+        try:
+            backend_client.set_binding(editing["source"], editing["output"])
+        except (OSError, RuntimeError, TimeoutError) as error:
+            state["message"] = f"저장 실패: {error}"
+            update_all()
+            return
+        load_bindings()
+        finish_edit(
+            f"저장됨: {vk_label(editing['source'])} → {vk_label(editing['output'])}"
+        )
+
+    def on_key_click(e: ft.Event[ft.Container]):
+        editing = state["editing"]
+        if editing is None:
+            return
+        vk = KEY_VK[e.control.data]
+        output = editing["output"]
+        same = [v for v in output if canonical_vk(v) == canonical_vk(vk)]
+        if same:
+            output.remove(same[0])
+        elif len(output) < MAX_OUTPUT_KEYS:
+            output.append(vk)
+        state["message"] = None
+        update_all()
+
     def refresh_tooltip():
         key_id = state["key_id"]
-        remappings = REMAPPINGS.get(key_id, [])
+        rows = bindings_for_key(state["bindings"], key_id)
+
+        def on_add():
+            vk = KEY_VK[key_id]
+            if vk == RESERVED_SOURCE_VK:
+                state["message"] = "F12는 일시정지/재개 키라서 원래 키로 쓸 수 없습니다"
+                update_all()
+                return
+            start_edit([vk], [])
+
+        def on_edit(index: int):
+            start_edit(list(rows[index]["keys"]), list(rows[index]["output"]))
 
         def on_delete(index: int):
-            remappings.pop(index)
+            binding = rows[index]
+            try:
+                backend_client.delete_binding(binding["keys"], binding["mouse"])
+                state["message"] = None
+            except (OSError, RuntimeError, TimeoutError) as error:
+                state["message"] = f"삭제 실패: {error}"
+            load_bindings()
+            render_panel()
+            panel.update()
             refresh_tooltip()
             # 줄이 줄어들면 툴팁 높이가 바뀌므로 자리도 다시 잡는다
             place_tooltip(key_buttons[key_id])
@@ -206,7 +336,11 @@ def keyboard_view(page: ft.Page):
             keyboard_stack.update()
 
         def on_row_hover(index: int):
-            set_highlight({key_id, *remappings[index]})
+            binding = rows[index]
+            set_highlight(
+                {key_id, *binding_key_ids(binding["output"])},
+                frozenset(binding_key_ids(binding["keys"])),
+            )
             keyboard_stack.update()
 
         def on_row_out(index: int):
@@ -216,10 +350,9 @@ def keyboard_view(page: ft.Page):
         components.set_tooltip_remappings(
             tooltip_thing,
             {
-                "labels": [remapping_label(i, ids) for i, ids in enumerate(remappings)],
-                # TODO: 리매핑 추가/수정 화면 디자인이 나오면 연결
-                "on_add": lambda: None,
-                "on_edit": lambda index: None,
+                "labels": [remapping_label(binding, key_id) for binding in rows],
+                "on_add": on_add,
+                "on_edit": on_edit,
                 "on_delete": on_delete,
                 "on_row_hover": on_row_hover,
                 "on_row_out": on_row_out,
@@ -230,7 +363,8 @@ def keyboard_view(page: ft.Page):
     # Stack 밖으로 나간 자식은 보이기만 하고 마우스 이벤트를 받지 못해서,
     # 그 상태로는 툴팁 위로 마우스를 옮길 수 없고 그대로 숨겨진다.
     def place_tooltip(key_button: ft.Container):
-        height = components.tooltip_height(len(REMAPPINGS.get(key_button.data, [])))
+        rows = bindings_for_key(state["bindings"], key_button.data)
+        height = components.tooltip_height(len(rows))
 
         # 가로: 키 가운데 정렬, 키보드 영역을 벗어나면 안쪽으로 당긴다
         left = key_button.left + (key_button.width - components.TOOLTIP_WIDTH) / 2
@@ -248,6 +382,9 @@ def keyboard_view(page: ft.Page):
             tooltip_thing.top = key_button.top + key_button.height
 
     def show_tooltip(key_button: ft.Container):
+        # 편집 중에는 키를 눌러 조합을 고르므로 툴팁을 띄우지 않는다
+        if state["editing"] is not None:
+            return
         cancel_hide()
 
         state["key_id"] = key_button.data
@@ -291,6 +428,7 @@ def keyboard_view(page: ft.Page):
                     "on_out": lambda e: (
                         schedule_hide() if state["key_id"] == e.control.data else None
                     ),
+                    "on_click": on_key_click,
                 }
             )
             key_button.left = x * KEY_UNIT_X
@@ -335,6 +473,31 @@ def keyboard_view(page: ft.Page):
         ],
     )
 
+    # 키보드 위 안내/편집 줄. 편집 중에는 "G → Ctrl+Win+←"와 저장·취소 버튼을 보여준다.
+    panel_text = ft.Text(HINT_TEXT, size=16, color="#FFFFFF")
+    save_button = ft.Button(content="저장", on_click=save_edit)
+    cancel_button = ft.TextButton(
+        content="취소",
+        on_click=lambda: finish_edit(),
+        style=ft.ButtonStyle(color="#FFFFFF"),
+    )
+    panel = ft.Container(
+        content=ft.Row(
+            controls=[panel_text, save_button, cancel_button],
+            spacing=12,
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        width=keyboard_width + 28,
+        height=52,
+        bgcolor=PANEL_COLOR,
+        border_radius=ft.BorderRadius.all(12),
+        padding=ft.Padding.symmetric(horizontal=16),
+    )
+
+    load_bindings()
+    render_panel()
+
     return ft.View(
         route="/keyboard",
         bgcolor="#595959",
@@ -344,7 +507,14 @@ def keyboard_view(page: ft.Page):
                 controls=[
                     components.make_nav_bar({"push_route": page.push_route}),
                     ft.Container(
-                        content=keyboard, alignment=ft.Alignment.CENTER, expand=True
+                        content=ft.Column(
+                            controls=[panel, keyboard],
+                            spacing=24,
+                            tight=True,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        alignment=ft.Alignment.CENTER,
+                        expand=True,
                     ),
                 ],
                 expand=True,

@@ -1,0 +1,12 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="297.046" height="482.222" viewBox="0 0 297.046 482.222" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="Chassis">
+<use xlink:href="#stroke0_0_8" fill="white"/>
+<mask id="stroke1_0_8" fill="white">
+<use xlink:href="#stroke0_0_8"/>
+</mask>
+<path d="M150.68 0C63.7037 6.66667 41.7032 24.505 24.8148 96.1111C15.5556 161.481 0 246.667 0 320C5.63995 396.667 30.2096 482.222 138.295 482.222C240.752 482.222 297.046 422.923 297.046 328.94L294.795 142.093C292.543 46.9915 245.255 0 150.68 0Z" stroke-width="2.66667" stroke="#E5E7EB" mask="url(#stroke1_0_8)"/>
+</g>
+<defs>
+<path id="stroke0_0_8" d="M150.68 0C63.7037 6.66667 41.7032 24.505 24.8148 96.1111C15.5556 161.481 0 246.667 0 320C5.63995 396.667 30.2096 482.222 138.295 482.222C240.752 482.222 297.046 422.923 297.046 328.94L294.795 142.093C292.543 46.9915 245.255 0 150.68 0Z"/>
+</defs>
+</svg>

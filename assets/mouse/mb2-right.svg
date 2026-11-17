@@ -1,0 +1,16 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="122.222" height="234.444" viewBox="0 0 122.222 234.444" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="MB2 &#194;&#183; &#236;&#152;&#164;&#235;&#165;&#184;&#236;&#170;&#189; &#235;&#178;&#132;&#237;&#138;&#188;" clip-path="url(#clip0_0_11)">
+<g id="Button surface">
+<path d="M0 0C79.6126 2.2328 119.98 45.7725 121.101 125.037L122.222 212.116C93.0683 224.397 49.3374 233.328 0 234.444V0Z" fill="white"/>
+<mask id="stroke0_0_11" fill="white">
+<path d="M0 0C79.6126 2.2328 119.98 45.7725 121.101 125.037L122.222 212.116C93.0683 224.397 49.3374 233.328 0 234.444V0Z"/>
+</mask>
+<path d="M0 0C79.6126 2.2328 119.98 45.7725 121.101 125.037L122.222 212.116C93.0683 224.397 49.3374 233.328 0 234.444V0Z" stroke-width="2.22222" stroke="#B4B4B4" mask="url(#stroke0_0_11)"/>
+</g>
+</g>
+<defs>
+<clipPath id="clip0_0_11">
+<rect width="122.222" height="234.444" fill="white"/>
+</clipPath>
+</defs>
+</svg>

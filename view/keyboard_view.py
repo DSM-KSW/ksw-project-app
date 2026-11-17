@@ -27,7 +27,6 @@ TOOLTIP_HIDE_DELAY = 0.2  # 툴팁에서 마우스가 벗어난 뒤 숨길 때�
 
 KEY_SOURCE_COLOR = "#FFB74D"  # 리매핑 편집 중인 원래 키 색
 MAX_OUTPUT_KEYS = 8  # 백엔드가 받는 결과 키 조합 최대 길이
-PANEL_COLOR = "#2F2F2F"
 HINT_TEXT = "키에 마우스를 올리고 + 를 눌러 리매핑을 추가하세요"
 
 # US ANSI 104키 풀배열
@@ -219,19 +218,18 @@ def keyboard_view(page: ft.Page):
     def render_panel():
         editing = state["editing"]
         if editing is None:
-            panel_text.value = state["message"] or HINT_TEXT
+            text = state["message"] or HINT_TEXT
             set_highlight(set())
         else:
             output = vk_label(editing["output"]) or "(바꿀 키 조합을 키보드에서 클릭)"
-            panel_text.value = f"{vk_label(editing['source'])} → {output}"
+            text = f"{vk_label(editing['source'])} → {output}"
             if state["message"]:
-                panel_text.value += f"   ·   {state['message']}"
+                text += f"   ·   {state['message']}"
             set_highlight(
                 binding_key_ids(editing["output"]),
                 frozenset(binding_key_ids(editing["source"])),
             )
-        save_button.visible = editing is not None
-        cancel_button.visible = editing is not None
+        components.set_edit_panel(panel, text, editing is not None)
 
     def update_all():
         render_panel()
@@ -473,26 +471,8 @@ def keyboard_view(page: ft.Page):
         ],
     )
 
-    # 키보드 위 안내/편집 줄. 편집 중에는 "G → Ctrl+Win+←"와 저장·취소 버튼을 보여준다.
-    panel_text = ft.Text(HINT_TEXT, size=16, color="#FFFFFF")
-    save_button = ft.Button(content="저장", on_click=save_edit)
-    cancel_button = ft.TextButton(
-        content="취소",
-        on_click=lambda: finish_edit(),
-        style=ft.ButtonStyle(color="#FFFFFF"),
-    )
-    panel = ft.Container(
-        content=ft.Row(
-            controls=[panel_text, save_button, cancel_button],
-            spacing=12,
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-        width=keyboard_width + 28,
-        height=52,
-        bgcolor=PANEL_COLOR,
-        border_radius=ft.BorderRadius.all(12),
-        padding=ft.Padding.symmetric(horizontal=16),
+    panel = components.make_edit_panel(
+        {"width": keyboard_width + 28, "on_save": save_edit, "on_cancel": finish_edit}
     )
 
     load_bindings()

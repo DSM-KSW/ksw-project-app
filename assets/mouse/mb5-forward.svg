@@ -1,0 +1,17 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="27.7778" height="68.8889" viewBox="0 0 27.7778 68.8889" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="MB5 &#194;&#183; &#236;&#184;&#161;&#235;&#169;&#180; &#236;&#149;&#158;&#236;&#156;&#188;&#235;&#161;&#156; &#235;&#178;&#132;&#237;&#138;&#188;" clip-path="url(#clip0_0_9)">
+<g id="Button surface">
+<use xlink:href="#stroke0_0_9" fill="white"/>
+<mask id="stroke1_0_9" fill="white">
+<use xlink:href="#stroke0_0_9"/>
+</mask>
+<path d="M14.4292 13.024C15.0948 9.99732 17.4244 8.18131 21.4179 7.57597L27.4083 6.66797L21.4179 54.7922C20.7523 58.4242 18.4228 60.5429 14.4292 61.1483L4.44531 62.9643L14.4292 13.024Z" stroke-width="1.48148" stroke="#B4B4B4" mask="url(#stroke1_0_9)"/>
+</g>
+</g>
+<defs>
+<clipPath id="clip0_0_9">
+<rect width="27.7778" height="68.8889" fill="white"/>
+</clipPath>
+<path id="stroke0_0_9" d="M14.4292 13.024C15.0948 9.99732 17.4244 8.18131 21.4179 7.57597L27.4083 6.66797L21.4179 54.7922C20.7523 58.4242 18.4228 60.5429 14.4292 61.1483L4.44531 62.9643L14.4292 13.024Z"/>
+</defs>
+</svg>

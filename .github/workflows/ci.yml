@@ -26,10 +26,10 @@ jobs:
           pip install ruff
 
       - name: Ruff lint
-        run: ruff check main.py backend_client.py tests
+        run: ruff check . --exclude backend
 
       - name: Ruff format
-        run: ruff format --check main.py backend_client.py tests
+        run: ruff format --check . --exclude backend
 
   test:
     runs-on: ubuntu-latest

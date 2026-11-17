@@ -1,3 +1,4 @@
+from components.make_edit_panel import make_edit_panel, set_edit_panel
 from components.make_hover_icon import is_hover_enter, make_hover_icon
 from components.make_key_button import (
     KEY_COLOR,
@@ -19,10 +20,12 @@ __all__ = [
     "TOOLTIP_WIDTH",
     "KeyButtonParameters",
     "is_hover_enter",
+    "make_edit_panel",
     "make_hover_icon",
     "make_key_button",
     "make_nav_bar",
     "make_tooltip",
+    "set_edit_panel",
     "set_tooltip_remappings",
     "tooltip_height",
 ]

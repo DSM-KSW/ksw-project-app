@@ -24,7 +24,12 @@ a = Analysis(
     ["main.py"],
     pathex=[],
     binaries=[],
-    datas=[(client_path, "flet_desktop/app"), ("backend/macro_combo.dll", "backend")],
+    # main.py는 실행 시 자기 위치 옆의 assets/를 Flet assets_dir로 쓴다.
+    datas=[
+        (client_path, "flet_desktop/app"),
+        ("backend/macro_combo.dll", "backend"),
+        ("assets", "assets"),
+    ],
     hiddenimports=collect_submodules("flet") + collect_submodules("flet_desktop") + ["backend.app", "backend.ipc"],
     hookspath=[],
     hooksconfig={},

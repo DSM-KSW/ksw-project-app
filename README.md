@@ -1,6 +1,6 @@
 # DSM-KSW 프론트 앱과 리매핑 백그라운드
 
-Windows에서 `main.py`를 실행하면 `backend_client.ensure_background()`가 리매핑 백엔드를 확인하고, 없으면 창 없는 자식 프로세스로 시작합니다. 프론트 창을 닫아도 백엔드는 계속 실행되며, 다음 실행 때 기존 프로세스의 Windows named pipe에 다시 연결합니다. `backend/`는 별도 백엔드 저장소의 커밋 `78f5aeb` 소스를 포함한 복사본입니다. 빌드와 설치에 다른 저장소 접근 권한은 필요하지 않습니다.
+Windows에서 `main.py`를 실행하면 `backend_client.ensure_background()`가 리매핑 백엔드를 확인하고, 없으면 창 없는 자식 프로세스로 시작합니다. 프론트 창을 닫아도 백엔드는 계속 실행되며, 다음 실행 때 기존 프로세스의 Windows named pipe에 다시 연결합니다. `backend/`는 이전 `ksw-project-background` 저장소를 커밋 히스토리째 합친 폴더이며, 백엔드 개발은 이제 이 저장소에서 합니다. 단독 테스트 화면은 `backend/run.bat`으로 실행합니다.
 
 프론트 코드에서 호출하는 방법:
 

@@ -1,0 +1,12 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="274.444" height="461.111" viewBox="0 0 274.444 461.111" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="Palm shell">
+<use xlink:href="#stroke0_0_7" fill="#F3F4F6"/>
+<mask id="stroke1_0_7" fill="white">
+<use xlink:href="#stroke0_0_7"/>
+</mask>
+<path d="M137.782 0C68.3311 0 28.0045 35.6414 17.9229 99.1277C7.84127 168.183 0 239.466 0 309.635C0 403.194 40.3265 461.111 127.701 461.111C216.195 461.111 274.444 408.763 274.444 318.545L273.324 131.428C272.204 42.3242 230.757 0 137.782 0Z" stroke-width="2.22222" stroke="#E5E7EB" mask="url(#stroke1_0_7)"/>
+</g>
+<defs>
+<path id="stroke0_0_7" d="M137.782 0C68.3311 0 28.0045 35.6414 17.9229 99.1277C7.84127 168.183 0 239.466 0 309.635C0 403.194 40.3265 461.111 127.701 461.111C216.195 461.111 274.444 408.763 274.444 318.545L273.324 131.428C272.204 42.3242 230.757 0 137.782 0Z"/>
+</defs>
+</svg>

@@ -1,0 +1,5 @@
+bindings.json
+*.json.tmp
+__pycache__/
+*.py[cod]
+.venv/

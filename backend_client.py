@@ -90,3 +90,18 @@ def delete_binding(keys, mouse=None):
 
 def list_bindings():
     return call("list_bindings")["bindings"]
+
+
+# 실제 키보드로 누른 조합 받기. poll을 계속 불러야 캡처가 유지된다.
+def capture_start():
+    call("capture_start")
+
+
+def capture_poll():
+    """{"state": "waiting"|"held"|"captured"|"cancelled"|"idle", "keys": [VK]}"""
+    response = call("capture_poll")
+    return {"state": response["state"], "keys": response["keys"]}
+
+
+def capture_cancel():
+    call("capture_cancel")

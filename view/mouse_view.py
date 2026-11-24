@@ -5,8 +5,9 @@ import flet as ft
 
 import backend_client
 import components
-from view.key_codes import vks_from_key_event
-from view.keyboard_view import TOOLTIP_HIDE_DELAY, vk_label
+from view.key_capture import KeyCapture
+from view.key_codes import RESERVED_VK, vks_from_key_event
+from view.keyboard_view import CANCEL_TEXT, F12_TEXT, TOOLTIP_HIDE_DELAY, vk_label
 
 # Figma MS-1/MS-2(1920x1080) 수치를 키보드 화면과 같이 2/3로 줄여서 쓴다
 SCALE = 2 / 3
@@ -213,8 +214,10 @@ def mouse_view(page: ft.Page):
             else None
         )
         update_all()
+        capture.start()
 
     def finish_edit(message: str | None = None):
+        capture.stop()
         state["editing"] = None
         state["message"] = message
         update_all()
@@ -236,17 +239,42 @@ def mouse_view(page: ft.Page):
             f"저장됨: {MOUSE_LABELS[editing['mouse']]} → {vk_label(editing['output'])}"
         )
 
-    # 편집 중에는 실제 키보드로 누른 조합을 결과 키로 받는다
+    # 편집 중에는 실제 키보드로 누른 조합을 결과 키로 받는다.
+    # 백엔드 훅 캡처(Win+Z 등도 받음)가 기본이고, Flet 키 이벤트는 캡처가 안 될 때의 예비 경로다.
+    def set_output(output: list[int]):
+        if state["editing"] is None:
+            return
+        output = [vk for vk in output if vk != RESERVED_VK]
+        if not output:
+            return
+        state["editing"]["output"] = output
+        state["message"] = None
+        update_all()
+
+    def on_capture_error(message: str):
+        state["message"] = message
+        update_all()
+
+    capture = KeyCapture(
+        page, "/mouse", set_output, lambda: finish_edit(CANCEL_TEXT), on_capture_error
+    )
+
     def on_keyboard(e: ft.KeyboardEvent):
         if state["editing"] is None or page.route != "/mouse":
+            return
+        if e.key == "Escape":
+            finish_edit(CANCEL_TEXT)
+            return
+        if e.key == "F12":
+            state["message"] = F12_TEXT
+            update_all()
             return
         output = vks_from_key_event(e.key, e.shift, e.ctrl, e.alt, e.meta)
         if output is None:
             state["message"] = f"지원하지 않는 키: {e.key}"
+            update_all()
         else:
-            state["editing"]["output"] = output
-            state["message"] = None
-        update_all()
+            set_output(output)
 
     page.on_keyboard_event = on_keyboard
 

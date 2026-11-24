@@ -5,7 +5,16 @@ import flet as ft
 
 import backend_client
 import components
-from view.key_codes import KEY_VK, RESERVED_SOURCE_VK, canonical_vk, key_id_for_vk
+from view.key_capture import KeyCapture
+from view.key_codes import (
+    EXTRA_VK_NAMES,
+    KEY_VK,
+    RESERVED_SOURCE_VK,
+    RESERVED_VK,
+    canonical_vk,
+    key_id_for_vk,
+    vks_from_key_event,
+)
 
 
 class KeyButtonData(TypedDict):
@@ -28,6 +37,11 @@ TOOLTIP_HIDE_DELAY = 0.2  # 툴팁에서 마우스가 벗어난 뒤 숨길 때�
 KEY_SOURCE_COLOR = "#FFB74D"  # 리매핑 편집 중인 원래 키 색
 MAX_OUTPUT_KEYS = 8  # 백엔드가 받는 결과 키 조합 최대 길이
 HINT_TEXT = "키에 마우스를 올리고 + 를 눌러 리매핑을 추가하세요"
+SOURCE_HINT_TEXT = "직접 매핑: 바꿀 원래 키를 누르세요 (Esc 취소)"
+OUTPUT_HINT_TEXT = "(바꿀 키 조합을 누르거나 클릭 · Esc 취소)"
+CANCEL_TEXT = "리매핑 편집을 취소했습니다"
+F12_TEXT = "F12는 리매핑 켜기/끄기 키라서 매핑할 수 없습니다"
+CHIP_COLOR = "#2F2F2F"
 
 # US ANSI 104키 풀배열
 KEYBOARD_BUTTON_DATA: list[list[KeyButtonData]] = [
@@ -160,8 +174,26 @@ def vk_label(vks: list[int]) -> str:
     names = []
     for vk in vks:
         key_id = key_id_for_vk(vk)
-        names.append(KEY_NAMES.get(key_id, key_id) if key_id else f"VK {vk:#04x}")
+        if key_id:
+            names.append(KEY_NAMES.get(key_id, key_id))
+        else:
+            names.append(EXTRA_VK_NAMES.get(vk, f"VK {vk:#04x}"))
     return "+".join(names)
+
+
+# 화면 키보드에 원래 키가 하나도 없어서 어느 키 툴팁에도 안 뜨는 리매핑 (예: F23)
+def offscreen_bindings(bindings: list[dict]) -> list[dict]:
+    return [
+        binding
+        for binding in bindings
+        if binding.get("mouse") is None and not binding_key_ids(binding["keys"])
+    ]
+
+
+def same_source(binding: dict, keys: list[int]) -> bool:
+    return binding.get("mouse") is None and {
+        canonical_vk(v) for v in binding["keys"]
+    } == {canonical_vk(v) for v in keys}
 
 
 # key_id 키를 원래 키에 포함하는 리매핑들 (백엔드 binding 형식)
@@ -220,8 +252,13 @@ def keyboard_view(page: ft.Page):
         if editing is None:
             text = state["message"] or HINT_TEXT
             set_highlight(set())
+        elif not editing["source"]:
+            text = SOURCE_HINT_TEXT
+            if state["message"]:
+                text += f"   ·   {state['message']}"
+            set_highlight(set())
         else:
-            output = vk_label(editing["output"]) or "(바꿀 키 조합을 키보드에서 클릭)"
+            output = vk_label(editing["output"]) or OUTPUT_HINT_TEXT
             text = f"{vk_label(editing['source'])} → {output}"
             if state["message"]:
                 text += f"   ·   {state['message']}"
@@ -230,11 +267,67 @@ def keyboard_view(page: ft.Page):
                 frozenset(binding_key_ids(editing["source"])),
             )
         components.set_edit_panel(panel, text, editing is not None)
+        extra_keys.visible = editing is not None and bool(editing["source"])
+        extra_keys.value = None
+        direct_button.disabled = editing is not None
+        render_offscreen()
 
     def update_all():
         render_panel()
         panel.update()
         keyboard_stack.update()
+        top_actions.update()
+        offscreen_row.update()
+
+    # 편집 중 실제 키보드로 누른 조합: 원래 키를 고르는 단계면 원래 키, 아니면 결과 키
+    def on_captured(keys: list[int]):
+        editing = state["editing"]
+        if editing is None:
+            return
+        keys = [vk for vk in keys if vk != RESERVED_VK]
+        if not keys:
+            return
+        if not editing["source"]:
+            editing["source"] = keys
+            existing = [b for b in state["bindings"] if same_source(b, keys)]
+            editing["output"] = list(existing[0]["output"]) if existing else []
+            state["message"] = "저장된 리매핑을 불러왔습니다" if existing else None
+        else:
+            editing["output"] = keys[:MAX_OUTPUT_KEYS]
+            state["message"] = None
+        update_all()
+
+    def on_capture_error(message: str):
+        state["message"] = message
+        update_all()
+
+    capture = KeyCapture(
+        page,
+        "/keyboard",
+        on_captured,
+        lambda: finish_edit(CANCEL_TEXT),
+        on_capture_error,
+    )
+
+    # 백엔드 캡처가 안 될 때를 위한 예비 경로 (캡처 중에는 훅이 키를 먹어서 여기 안 온다)
+    def on_keyboard(e: ft.KeyboardEvent):
+        if state["editing"] is None or page.route != "/keyboard":
+            return
+        if e.key == "Escape":
+            finish_edit(CANCEL_TEXT)
+            return
+        if e.key == "F12":
+            state["message"] = F12_TEXT
+            update_all()
+            return
+        output = vks_from_key_event(e.key, e.shift, e.ctrl, e.alt, e.meta)
+        if output is None:
+            state["message"] = f"지원하지 않는 키: {e.key}"
+            update_all()
+        else:
+            on_captured(output)
+
+    page.on_keyboard_event = on_keyboard
 
     def cancel_hide():
         if state["hide_task"] is not None:
@@ -265,14 +358,20 @@ def keyboard_view(page: ft.Page):
         state["editing"] = {"source": source, "output": output}
         state["message"] = None
         update_all()
+        capture.start()
 
     def finish_edit(message: str | None = None):
+        capture.stop()
         state["editing"] = None
         state["message"] = message
         update_all()
 
     def save_edit():
         editing = state["editing"]
+        if not editing["source"]:
+            state["message"] = "원래 키를 먼저 누르세요"
+            update_all()
+            return
         if not editing["output"]:
             state["message"] = "바꿀 키를 하나 이상 고르세요"
             update_all()
@@ -288,11 +387,14 @@ def keyboard_view(page: ft.Page):
             f"저장됨: {vk_label(editing['source'])} → {vk_label(editing['output'])}"
         )
 
-    def on_key_click(e: ft.Event[ft.Container]):
+    def toggle_output(vk: int):
         editing = state["editing"]
-        if editing is None:
+        if editing is None or not editing["source"]:
             return
-        vk = KEY_VK[e.control.data]
+        if vk == RESERVED_VK:
+            state["message"] = F12_TEXT
+            update_all()
+            return
         output = editing["output"]
         same = [v for v in output if canonical_vk(v) == canonical_vk(vk)]
         if same:
@@ -301,6 +403,68 @@ def keyboard_view(page: ft.Page):
             output.append(vk)
         state["message"] = None
         update_all()
+
+    def on_key_click(e: ft.Event[ft.Container]):
+        toggle_output(KEY_VK[e.control.data])
+
+    def on_extra_key(e: ft.Event[ft.Dropdown]):
+        if e.control.value:
+            toggle_output(int(e.control.value))
+
+    # 오른쪽 위 "직접 매핑하기": 원래 키를 실제로 눌러서 고른다 (화면에 없는 F23 등도 가능)
+    def start_direct():
+        if state["editing"] is None:
+            start_edit([], [])
+
+    def edit_binding(binding: dict):
+        start_edit(list(binding["keys"]), list(binding["output"]))
+
+    def delete_offscreen(binding: dict):
+        try:
+            backend_client.delete_binding(binding["keys"], binding["mouse"])
+            state["message"] = None
+        except (OSError, RuntimeError, TimeoutError) as error:
+            state["message"] = f"삭제 실패: {error}"
+        load_bindings()
+        update_all()
+
+    def render_offscreen():
+        rows = offscreen_bindings(state["bindings"])
+        offscreen_row.visible = bool(rows)
+        offscreen_row.controls = [
+            ft.Text("화면에 없는 키", size=14, color="#FFFFFF"),
+            *[make_offscreen_chip(binding) for binding in rows],
+        ]
+
+    def make_offscreen_chip(binding: dict):
+        return ft.Container(
+            content=ft.Row(
+                controls=[
+                    ft.Text(
+                        f"{vk_label(binding['keys'])} → {vk_label(binding['output'])}",
+                        size=14,
+                        color="#FFFFFF",
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.EDIT,
+                        icon_size=16,
+                        icon_color="#FFFFFF",
+                        on_click=lambda: edit_binding(binding),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.DELETE,
+                        icon_size=16,
+                        icon_color="#FFFFFF",
+                        on_click=lambda: delete_offscreen(binding),
+                    ),
+                ],
+                spacing=0,
+                tight=True,
+            ),
+            bgcolor=CHIP_COLOR,
+            border_radius=ft.BorderRadius.all(12),
+            padding=ft.Padding.only(left=12),
+        )
 
     def refresh_tooltip():
         key_id = state["key_id"]
@@ -475,6 +639,38 @@ def keyboard_view(page: ft.Page):
         {"width": keyboard_width + 28, "on_save": save_edit, "on_cancel": finish_edit}
     )
 
+    extra_keys = ft.Dropdown(
+        label="특수 키 추가",
+        width=200,
+        menu_height=320,
+        options=[
+            ft.DropdownOption(key=str(vk), text=name)
+            for vk, name in EXTRA_VK_NAMES.items()
+        ],
+        on_select=on_extra_key,
+        bgcolor="#FFFFFF",
+        filled=True,
+        fill_color="#FFFFFF",
+    )
+    direct_button = ft.Button(
+        content="직접 매핑하기",
+        icon=ft.Icons.KEYBOARD,
+        on_click=start_direct,
+    )
+    top_actions = ft.Row(
+        controls=[extra_keys, direct_button],
+        spacing=12,
+        tight=True,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+    offscreen_row = ft.Row(
+        spacing=8,
+        wrap=True,
+        alignment=ft.MainAxisAlignment.CENTER,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        width=keyboard_width + 28,
+    )
+
     load_bindings()
     render_panel()
 
@@ -485,10 +681,17 @@ def keyboard_view(page: ft.Page):
         controls=[
             ft.Column(
                 controls=[
-                    components.make_nav_bar({"push_route": page.push_route}),
+                    ft.Row(
+                        controls=[
+                            components.make_nav_bar({"push_route": page.push_route}),
+                            top_actions,
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                    ),
                     ft.Container(
                         content=ft.Column(
-                            controls=[panel, keyboard],
+                            controls=[panel, keyboard, offscreen_row],
                             spacing=24,
                             tight=True,
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,

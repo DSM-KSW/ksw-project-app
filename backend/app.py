@@ -1,8 +1,10 @@
 import ctypes
 import json
 import os
+import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from ctypes import wintypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -214,6 +216,83 @@ def capture_mouse_event(name, pressed):
         return True
 
 
+# UI(IPC)용 키 조합 캡처. 누른 키를 모두 모아서 전부 떼면 한 조합으로 끝낸다.
+# 캡처 중에는 키를 시스템에 넘기지 않으므로 Win+Z 같은 조합도 Windows가 가로채지 않는다.
+# UI가 죽어도 키보드가 막히지 않게 poll이 끊기면 COMBO_LEASE초 뒤 저절로 풀린다.
+VK_ESCAPE = 0x1B
+COMBO_LEASE = 2.0
+MAX_COMBO_KEYS = 8
+combo = {"state": "idle", "keys": [], "held": set(), "deadline": 0.0}
+
+
+def combo_start():
+    with state_lock:
+        combo.update(state="waiting", keys=[], held=set(),
+                     deadline=time.monotonic() + COMBO_LEASE)
+
+
+def combo_poll():
+    with state_lock:
+        if combo["state"] in ("waiting", "held"):
+            combo["deadline"] = time.monotonic() + COMBO_LEASE
+        result = {"state": combo["state"], "keys": combo["keys"].copy()}
+        if combo["state"] in ("captured", "cancelled"):
+            combo.update(state="idle", keys=[], held=set())
+        return result
+
+
+def combo_cancel():
+    with state_lock:
+        combo.update(state="idle", keys=[], held=set())
+
+
+def combo_key(vk, pressed):
+    """캡처 중이면 키를 먹고 True. Esc 단독은 취소."""
+    with state_lock:
+        if combo["state"] not in ("waiting", "held"):
+            return False
+        if time.monotonic() > combo["deadline"]:
+            combo.update(state="idle", keys=[], held=set())
+            return False
+        if pressed:
+            if vk == VK_ESCAPE and not combo["keys"]:
+                combo.update(state="cancelled", keys=[], held=set())
+                return True
+            if (len(combo["keys"]) < MAX_COMBO_KEYS and
+                    canonical_key(vk) not in {canonical_key(v) for v in combo["keys"]}):
+                combo["keys"].append(vk)
+            combo["held"].add(vk)
+            combo["state"] = "held"
+        else:
+            combo["held"].discard(vk)
+            if not combo["held"] and combo["keys"]:
+                combo["state"] = "captured"
+        return True
+
+
+def notify_active(active):
+    """F12로 켜고 끌 때 Windows 알림을 띄운다. 훅을 막지 않게 따로 실행한다."""
+    body = "리매핑이 켜졌습니다" if active else "리매핑이 꺼졌습니다 · F12로 다시 켜기"
+    script = (
+        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications,"
+        " ContentType = WindowsRuntime] | Out-Null;"
+        "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument,"
+        " ContentType = WindowsRuntime] | Out-Null;"
+        "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument;"
+        "$xml.LoadXml('<toast><visual><binding template=\"ToastGeneric\">"
+        f"<text>DSM 키 리매퍼</text><text>{body}</text></binding></visual></toast>');"
+        "$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';"
+        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app)"
+        ".Show([Windows.UI.Notifications.ToastNotification]::new($xml))"
+    )
+    try:
+        subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, creationflags=0x08000000)
+    except OSError:
+        pass
+
+
 def clear_triggered():
     with state_lock:
         for index in list(triggered):
@@ -271,6 +350,8 @@ def keyboard_proc(code, wparam, lparam):
                 state["active"] = not state["active"]
                 state["capturing"] = False
                 state["status"] = "치환 작동 중" if state["active"] else "일시 정지 · F12로 재개"
+                active = state["active"]
+            threading.Thread(target=notify_active, args=(active,), daemon=True).start()
         elif not pressed:
             f12_held = False
         return 1
@@ -281,7 +362,7 @@ def keyboard_proc(code, wparam, lparam):
         raw_held_keys.discard(vk)
     held_keys.clear()
     held_keys.update(canonical_key(v) for v in raw_held_keys)
-    if capture_key(vk, pressed):
+    if combo_key(vk, pressed) or capture_key(vk, pressed):
         if pressed:
             suppressed_keys.add(key_id)
         else:
@@ -508,10 +589,21 @@ def dispatch_ipc(message):
             state["active"] = message["active"]
             state["status"] = "치환 작동 중" if state["active"] else "일시 정지"
             return {"ok": True, "active": state["active"]}
+        if operation == "capture_start":
+            combo_start()
+            return {"ok": True}
+        if operation == "capture_poll":
+            return {"ok": True, **combo_poll()}
+        if operation == "capture_cancel":
+            combo_cancel()
+            return {"ok": True}
         if operation == "set_binding":
             binding = message.get("binding")
             if not valid_binding(binding):
                 return {"ok": False, "error": "invalid_binding"}
+            # F12는 켜기/끄기 키라서 결과 키로도 쓰지 않는다
+            if VK_F12 in binding["output"]:
+                return {"ok": False, "error": "reserved_key"}
             signature = (frozenset(canonical_key(key) for key in binding["keys"]), binding["mouse"])
             updated = [item for item in state["bindings"] if
                        (frozenset(canonical_key(key) for key in item["keys"]), item["mouse"]) != signature]

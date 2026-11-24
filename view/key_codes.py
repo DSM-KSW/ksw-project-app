@@ -71,8 +71,35 @@ KEY_VK: dict[str, int] = {
     "arrow-right": 0x27,
 }
 
-# F12는 백엔드가 리매핑 일시정지/재개 키로 쓰므로 원래 키로 지정할 수 없다.
+# F12는 백엔드가 리매핑 켜기/끄기 키로 쓰므로 원래 키로도 결과 키로도 쓸 수 없다.
 RESERVED_SOURCE_VK = 0x7B
+RESERVED_VK = RESERVED_SOURCE_VK
+ESCAPE_VK = 0x1B
+
+# 화면 키보드에 없는 키 (매크로 키보드 등이 보내는 F13~F24, 미디어 키 등).
+# "직접 매핑하기"에서 결과 키로 고를 수 있다.
+EXTRA_VK_NAMES: dict[int, str] = {
+    **{0x7B + n: f"F{12 + n}" for n in range(1, 13)},  # F13(0x7C) ~ F24(0x87)
+    0xAD: "음소거",
+    0xAE: "볼륨 -",
+    0xAF: "볼륨 +",
+    0xB3: "재생/일시정지",
+    0xB2: "미디어 정지",
+    0xB0: "다음 트랙",
+    0xB1: "이전 트랙",
+    0xA6: "브라우저 뒤로",
+    0xA7: "브라우저 앞으로",
+    0xA8: "브라우저 새로고침",
+    0xAA: "브라우저 검색",
+    0xAB: "브라우저 즐겨찾기",
+    0xAC: "브라우저 홈",
+    0xB4: "메일",
+    0xB6: "앱 실행 1",
+    0xB7: "앱 실행 2",
+    0x5F: "절전",
+    0x15: "한/영",
+    0x19: "한자",
+}
 
 # 백엔드는 좌우 Shift/Ctrl/Alt/Win을 같은 키로 본다 (backend/app.py canonical_key와 동일).
 _CANONICAL = {
